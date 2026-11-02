@@ -188,7 +188,6 @@ retail_nsa_x13 |>
   group_by(mon) |>
   summarize(avg_seasonal_factor = mean(seasonal))
 
-# 4.3b
 sa_compare <- retail_nsa_x13 |>
   as_tibble() |>
   select(Month, mine = season_adjust) |>
@@ -207,3 +206,31 @@ sa_compare |>
   labs(title = "My X-13 Seasonal Adjustment Minus the Census Bureau's",
        x = NULL, y = "Difference (%)") +
   theme_minimal()
+
+# 4.4a
+can_gas_fit <- can_gas |>
+  model(TSLM(log_volume ~ trend() + season()))
+
+report(can_gas_fit)
+
+can_gas_fit |>
+  tidy() |>
+  select(term, estimate, std.error, statistic, p.value) |>
+  knitr::kable(digits = 3)
+
+# 4.4b
+can_gas_fit |>
+  augment() |>
+  ggplot(aes(x = Month)) +
+  geom_line(aes(y = log_volume, color = "Actual")) +
+  geom_line(aes(y = .fitted,    color = "Fitted")) +
+  labs(title = "Linear Trend + Seasonal Dummies Fit: Canadian Gas Production",
+       y = "log(Volume)", color = NULL) +
+  theme_minimal()
+
+# 4.4c
+can_gas_fit |> gg_tsresiduals()
+
+can_gas_fit |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
