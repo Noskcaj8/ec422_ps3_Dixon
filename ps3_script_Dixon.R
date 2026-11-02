@@ -207,7 +207,6 @@ sa_compare |>
        x = NULL, y = "Difference (%)") +
   theme_minimal()
 
-# 4.4a
 can_gas_fit <- can_gas |>
   model(TSLM(log_volume ~ trend() + season()))
 
@@ -218,7 +217,6 @@ can_gas_fit |>
   select(term, estimate, std.error, statistic, p.value) |>
   knitr::kable(digits = 3)
 
-# 4.4b
 can_gas_fit |>
   augment() |>
   ggplot(aes(x = Month)) +
@@ -228,9 +226,46 @@ can_gas_fit |>
        y = "log(Volume)", color = NULL) +
   theme_minimal()
 
-# 4.4c
 can_gas_fit |> gg_tsresiduals()
 
 can_gas_fit |>
   augment() |>
   features(.innov, ljung_box, lag = 24)
+
+gas_cv_fc <- can_gas |>
+  select(Month, Volume) |>
+  stretch_tsibble(.init = 240, .step = 1) |>
+  model(snaive = SNAIVE(Volume),
+        tslm   = TSLM(log(Volume) ~ trend() + season())) |>
+  forecast(h = 1)
+
+cv_expanding_acc <- gas_cv_fc |>
+  accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
+cv_expanding_acc
+
+gas_cv_fc |>
+  as_tibble() |>
+  filter(Month <= yearmonth("2005 Feb")) |>
+  summarize(first_forecast = min(Month), last_forecast = max(Month))
+
+errs <- gas_cv_fc |>
+  as_tibble() |>
+  left_join(as_tibble(can_gas) |> select(Month, actual = Volume),
+            by = "Month") |>
+  mutate(e = actual - .mean) |>
+  select(Month, .model, e) |>
+  pivot_wider(names_from = .model, values_from = e) |>
+  na.omit()
+
+forecast::dm.test(errs$snaive, errs$tslm, h = 1, power = 1)
+
+gas_cv_fc_roll <- can_gas |>
+  select(Month, Volume) |>
+  slide_tsibble(.size = 240, .step = 1) |>
+  model(snaive = SNAIVE(Volume),
+        tslm   = TSLM(log(Volume) ~ trend() + season())) |>
+  forecast(h = 1)
+
+cv_rolling_acc <- gas_cv_fc_roll |>
+  accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
+cv_rolling_acc
