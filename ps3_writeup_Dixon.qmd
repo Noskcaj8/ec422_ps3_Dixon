@@ -224,3 +224,140 @@ retail_ts |>
 ```
 
 **3.3.** The NSA series is much noisier.  It’s month over month growth swings between roughly -20% and 20% while the SA series stays close to zero with very small movements.  The reason being that the NSA series still contains the repeating seasonal pattern so its month-to-month changes are dominated by the seasonal movement.  Seasonal adjustment removes that pattern so the SA growth rates only reflect the underlying changes in the economy. 
+
+## Seasonality
+
+### Season plots (4.1)
+
+```{r}
+retail_ts |>
+  filter(series_id == "RSAFSNA") |>
+  gg_season(sales) +
+  labs(title = "Seasonal Pattern in NSA Retail Sales",
+       y = "Millions of dollars") +
+  theme_minimal()
+
+retail_ts |>
+  filter(series_id == "RSAFS") |>
+  gg_season(sales) +
+  labs(title = "Seasonal Pattern in SA Retail Sales",
+       y = "Millions of dollars") +
+  theme_minimal()
+```
+
+**4.1b.** In the NSA plot, the yearly lines are almost identical and trace the same shape.  A dip in February, a jump in March, a flat stretch through summer, a dip in September, and a climb to the highest point in December.  The pattern repeats year after year with only the level shifting upward.  In the SA plot, that shared shape is gone and the lines are nearly flat across the months.  The one exception being Covid.  This shows seasonal adjustment in action, estimating the repeating in the NSA plot then removing it.  
+
+```{r}
+can_gas |>
+  gg_season(log_volume) +
+  labs(title = "Seasonal Pattern in Canadian Gas Production",
+       y = "log(Volume)") +
+  theme_minimal()
+```
+
+**4.1c.** Production is highest in the winter months, and lowest in summer.  So the lines form a shallow U-shape.  This makes sense because natural gas is used heavily for heating so demand rises in cold months. 
+
+### Subseries plot (4.2)
+
+```{r}
+can_gas |>
+  gg_subseries(log_volume) +
+  labs(title = "Subseries Plot: Canadian Gas Production",
+       y = "log(Volume)")
+```
+
+The blue mean lines are highest in December and January and lowest in summer months confirming the season plot.  Every month’s panel shows the same strong upward trend over time, so the seasonal pattern is stable as the level rises.  
+
+### X-13ARIMA-SEATS (4.3)
+
+```{r}
+retail_nsa_x13 <- retail_ts |>
+  filter(series_id == "RSAFSNA") |>
+  model(x13 = X_13ARIMA_SEATS(sales)) |>
+  components()
+
+retail_nsa_x13 |> autoplot()
+```
+
+```{r}
+retail_nsa_x13 |>
+  as_tibble() |>
+  mutate(mon = month(Month, label = TRUE)) |>
+  group_by(mon) |>
+  summarize(avg_seasonal_factor = mean(seasonal)) |>
+  knitr::kable(digits = 3)
+```
+
+**4.3a.** The seasonal factor is highest in December, at about 1.15.  Sales in December are typically about 15% above the trend.  The lowest months are January and February (about 0.9 and 0.89, so roughly 10% below trend).  The seasonal panel looks fairly stable, with no obvious growth in the swings.  This fits a multiplicative decomposition, where the seasonal effect is a constant percentage of the trend rather than a constant of dollar amount. 
+
+```{r}
+sa_compare <- retail_nsa_x13 |>
+  as_tibble() |>
+  select(Month, mine = season_adjust) |>
+  left_join(
+    retail_ts |>
+      filter(series_id == "RSAFS") |>
+      as_tibble() |>
+      transmute(Month, census = sales),
+    by = "Month"
+  ) |>
+  mutate(pct_diff = 100 * (log(mine) - log(census)))
+
+sa_compare |>
+  ggplot(aes(x = Month, y = pct_diff)) +
+  geom_line() +
+  labs(title = "My X-13 Seasonal Adjustment Minus the Census Bureau's",
+       x = NULL, y = "Difference (%)") +
+  theme_minimal()
+```
+
+**4.3b.** My X-13 adjustment is very close to the official one.  The difference is centered on zero and mostly stays within about 1 percentage point.  The differences are largest in the 2020s but that might be due to the Census Bureau using outlier treatments for Covid while I used the defaults.  
+
+### Linear trend + seasonal dummies (4.4)
+
+```{r}
+can_gas_fit <- can_gas |>
+  model(TSLM(log_volume ~ trend() + season()))
+
+can_gas_fit |>
+  tidy() |>
+  select(term, estimate, std.error, statistic, p.value) |>
+  knitr::kable(digits = 3)
+```
+
+```{r}
+can_gas_fit |>
+  tidy() |>
+  filter(term == "trend()") |>
+  mutate(monthly_growth_pct = 100 * estimate) |>
+  select(term, estimate, monthly_growth_pct) |>
+  knitr::kable(digits = 4)
+```
+
+**4.4a.** The trend coefficient is about 0.004 so average monthly growth in gas production is about 0.4% per month.  The seasonal dummies are measured proportionately to January.  The most significant seasonal effect is June, with an estimate of -0.251 and a t-statistic of -4.78, the largest in absolute value.  June is about 25 log points below January, which fits the winter-heating pattern.  December and January are almost equal as December’s coefficient is about 0. 
+
+```{r}
+can_gas_fit |>
+  augment() |>
+  ggplot(aes(x = Month)) +
+  geom_line(aes(y = log_volume, color = "Actual")) +
+  geom_line(aes(y = .fitted, color = "Fitted")) +
+  labs(title = "Linear Trend + Seasonal Dummies Fit: Canadian Gas Production",
+       y = "log(Volume)", color = NULL) +
+  theme_minimal()
+```
+
+**4.4b.** The fitted line captures the seasonal pattern well, with similar-sized yearly swings throughout.  It misses the trend.  The actual series is curved but the model forces a straight line.  The fit overshoots in the early 60s, undershoots through the 70s and 80s, and overshoots again in 2000s.  
+
+```{r}
+can_gas_fit |> gg_tsresiduals()
+```
+
+```{r}
+can_gas_fit |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24) |>
+  knitr::kable(digits = 3)
+```
+
+**4.4c.** The residuals do not look like white noise.  The time plot shows long, slow swings and the ACF is very high, and decays slowly.  The Ljung-Box test gives a statistic of about 7,774 with a p-value of basically 0, so at the 5% level we reject the null of white noise.  A straight-line trend plus fixed seasonal dummies leaves a lot of predicable structure like the nonlinear trend and persistence.  
