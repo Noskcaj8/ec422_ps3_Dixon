@@ -66,3 +66,32 @@ can_gas_q <- can_gas |>
 head(can_gas_q)
 
 can_gas_q |> autoplot(Volume)
+
+# 2.6b: seasonal averages (since 1990) Highest = December (17.1) Lowest = June (14.9) 
+# 2.6b cont'd: Production is higher in winter months, lower in summer, natural gas used for heating
+
+# 2.6d: why sum() and not mean()? Bc gas production is a flow (amount produced over period of time)
+# 2.6d cont'd: Quaterly series is still seasonal, plenty of zig zags, just smoother than monthly data
+
+retail_ts |> autoplot(sales)
+
+retail_ts |>
+  autoplot(sales) +
+  labs(title    = "U.S. Retail and Food Services Sales",
+       subtitle = "Seasonally adjusted vs. not seasonally adjusted",
+       x = NULL, y = "Millions of dollars", color = NULL) +
+  theme_minimal()
+
+can_gas |>
+  autoplot(Volume) +
+  labs(title = "Canadian Natural Gas Production",
+       x = NULL, y = "Billions of cubic meters") +
+  theme_minimal()
+
+retail_ts |>
+  autoplot(sales) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(title = "U.S. Retail and Food Services Sales",
+       x = NULL, y = "Millions of dollars", color = NULL) +
+  theme_minimal()
+
