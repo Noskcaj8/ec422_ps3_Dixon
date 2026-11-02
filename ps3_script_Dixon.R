@@ -117,3 +117,35 @@ retail_nsa |>
   autoplot(log_sales) +
   labs(title = "NSA Retail Sales: Log", x = NULL, y = "log(Millions of dollars)") +
   theme_minimal()
+
+can_gas <- can_gas |>
+  mutate(
+    growth_direct  = 100 * difference(Volume) / lag(Volume),
+    growth_logdiff = 100 * difference(log_volume)
+  )
+
+can_gas |>
+  autoplot(growth_direct) +
+  labs(title = "Canadian Gas Production: Month-over-Month Growth (direct)",
+       x = NULL, y = "Growth rate (%)") +
+  theme_minimal()
+
+can_gas <- can_gas |>
+  mutate(growth_gap = abs(growth_direct - growth_logdiff))
+
+can_gas |>
+  autoplot(growth_gap) +
+  labs(title = "Gap Between Direct and Log-Difference Growth",
+       x = NULL, y = "Absolute gap (percentage points)") +
+  theme_minimal()
+
+retail_ts <- retail_ts |>
+  group_by_key() |>
+  mutate(growth_mom = 100 * difference(log(sales))) |>
+  ungroup()
+
+retail_ts |>
+  autoplot(growth_mom) +
+  labs(title = "Month-over-Month Growth: SA vs. NSA Retail Sales",
+       x = NULL, y = "Growth rate (%)", color = NULL) +
+  theme_minimal()
