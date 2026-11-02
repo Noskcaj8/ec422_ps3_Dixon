@@ -1,0 +1,226 @@
+---
+title: "Problem Set 3"
+author: "Jackson Dixon"
+date: today
+format:
+  html:
+    toc: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+**GitHub repo:** <https://github.com/Noskcaj8/ec422_ps3_Dixon>
+
+```{r}
+#| label: setup
+library(tidyverse)
+library(fpp3)
+
+retail_raw <- read_csv(
+  "data/retail_sales_raw.csv",
+  na = ".",
+  col_types = cols(
+    observation_date = col_date(format = "%Y-%m-%d"),
+    RSAFS            = col_double(),
+    RSAFSNA          = col_double()
+  )
+)
+
+retail_raw_long <- retail_raw |>
+  select(observation_date, RSAFS, RSAFSNA) |>
+  pivot_longer(cols = c(RSAFS, RSAFSNA),
+               names_to = "series_id", values_to = "sales")
+
+retail_ts <- retail_raw_long |>
+  mutate(Month = yearmonth(observation_date)) |>
+  as_tsibble(index = Month, key = series_id)
+
+can_gas <- canadian_gas |> select(Month, Volume)
+```
+
+## Time and Tsibbles
+
+**Datasets.** `retail_ts` holds two monthly U.S. retail and food services sales series from the Census Bureau, downloaded from FRED: RSAFS (seasonally adjusted) and RSAFSNA (not seasonally adjusted), in millions of dollars. Its index is `Month` (a `yearmonth`) and its key is `series_id`. `can_gas` is monthly Canadian natural gas production in billions of cubic meters, January 1960 to February 2005, from the `fpp3` package. It has a single series, so it has no key. Its index is `Month`, and the variable is `Volume`.
+
+### Reading the data (2.2-2.4)
+
+```{r}
+head(retail_raw)
+```
+
+The `observation_date` column is read as `<date>`. (Default `read_csv()` guessed correctly here, but I specify column types explicitly anyway.)
+
+```{r}
+head(retail_raw_long)
+head(retail_ts)
+has_gaps(retail_ts)
+```
+
+The tsibble header shows `[1M]`, meaning monthly frequency was detected, and `has_gaps()` is `FALSE` for both series.
+
+### Canadian gas (2.5)
+
+```{r}
+key_vars(canadian_gas)
+index_var(canadian_gas)
+has_gaps(can_gas)
+head(can_gas)
+```
+
+### Working with dates (2.6)
+
+```{r}
+can_gas_recent <- can_gas |>
+  filter(Month >= yearmonth("1990 Jan")) |>
+  mutate(year = year(Month),
+         month = month(Month, label = TRUE),
+         quarter = quarter(Month))
+
+can_gas_recent |>
+  as_tibble() |>
+  group_by(month) |>
+  summarize(avg_volume = mean(Volume)) |>
+  knitr::kable(digits = 1)
+```
+
+Since 1990, December has the highest average production (17.1, with January close at 17.0) and June has the lowest (about 14.9). Production is higher in winter and lower in summer.
+
+```{r}
+can_gas_recent |>
+  mutate(next_month = Month + 1,
+         same_month_last_year = Month - 12) |>
+  head()
+```
+
+```{r}
+can_gas_q <- can_gas |>
+  filter(Month <= yearmonth("2004 Dec")) |>
+  index_by(Quarter = yearquarter(Month)) |>
+  summarize(Volume = sum(Volume))
+
+head(can_gas_q)
+can_gas_q |> autoplot(Volume)
+```
+
+I used `sum()` because gas production is a flow: quarterly production should be the total produced over the three months, not the average monthly rate. The quarterly series is still clearly seasonal, with a repeating yearly pattern of winter highs and summer lows.
+
+### Plotting (2.7)
+
+```{r}
+retail_ts |>
+  autoplot(sales) +
+  labs(title = "U.S. Retail and Food Services Sales",
+       subtitle = "Seasonally adjusted vs. not seasonally adjusted",
+       x = NULL, y = "Millions of dollars", color = NULL) +
+  theme_minimal()
+```
+
+The NSA series has a sharp spike and dip that repeat every year.  Probably due to the holiday shopping surge near the end of the year, followed by a drop afterword.  The SA series doesn’t show this, much smoother because the seasonal adjustment got rid of that repeating in year pattern.  In the long run both series follow the same path.  Both rise steadily over time, same drop in 2020 (covid recession).  Seasonal adjustment removes the predictable in year fluctuation, but leaves the trend and the major shocks intact. 
+
+```{r}
+can_gas |>
+  autoplot(Volume) +
+  labs(title = "Canadian Natural Gas Production",
+       x = NULL, y = "Billions of cubic meters") +
+  theme_minimal()
+```
+
+```{r}
+retail_ts |>
+  autoplot(sales) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(title = "U.S. Retail and Food Services Sales",
+       x = NULL, y = "Millions of dollars", color = NULL) +
+  theme_minimal()
+```
+
+## Transformations
+
+### Logs (3.1)
+
+```{r}
+can_gas <- can_gas |>
+  mutate(log_volume = log(Volume))
+
+can_gas |>
+  autoplot(Volume) +
+  labs(title = "Canadian Natural Gas Production",
+       x = NULL, y = "Billions of cubic meters") +
+  theme_minimal()
+
+can_gas |>
+  autoplot(log_volume) +
+  labs(title = "Log of Canadian Natural Gas Production",
+       x = NULL, y = "log(Volume)") +
+  theme_minimal()
+```
+
+**3.1a.** For the first part of the sample, the seasonal swings do seem to grow with the level of the series.  In the 60s when production is low, the yearly swings are small.  By the 70s and 80s, when the level has risen to 8-10, the swings are much bigger.  This doesn’t hold over the entire sample though.  After 1990, the series keeps climbing, but the swings don’t grow proportionally.  They look similar in size if not smaller, and the seasonal pattern becomes less regular.  The swings grow with the series early on, then the relationship breaks down.  Swings are largest in the 1980s, then later swings get smaller.  
+
+**3.1b.** After taking logs, the trend no longer looks like steady growth.  It rises steeply through the 60s and early 70s, then flattens out through the 80s, and rises again in the 90s, then tapers off.  The seasonal swings are more even through the first half of the sample than in the raw series, but they now obviously shrink in the 90s and 2000s.  I think logs are only a partial help for this because they tame the pattern where swings grew with the level, but the trend still isn’t a clean straight line, and now the later swings look too small.  So I’d use logs, but I don’t expect them to fix everything.  
+
+```{r}
+retail_nsa <- retail_ts |>
+  filter(series_id == "RSAFSNA") |>
+  mutate(log_sales = log(sales))
+
+retail_nsa |>
+  autoplot(sales) +
+  labs(title = "NSA Retail Sales: Level",
+       x = NULL, y = "Millions of dollars") +
+  theme_minimal()
+
+retail_nsa |>
+  autoplot(log_sales) +
+  labs(title = "NSA Retail Sales: Log",
+       x = NULL, y = "log(Millions of dollars)") +
+  theme_minimal()
+```
+
+**3.1c.** The case for logging is stronger for retails than for gas.  In levels, the seasonal spikes get bigger as sales grow.  In logs, the trend is close to a straight line and the seasonal swings are fairly constant in size across the entire sample.  Retail sales grow with at a pretty steady percentage rate, which is what logs turn into a straight line.  
+
+### Growth rates (3.2)
+
+```{r}
+can_gas <- can_gas |>
+  mutate(
+    growth_direct  = 100 * difference(Volume) / lag(Volume),
+    growth_logdiff = 100 * difference(log_volume)
+  )
+
+can_gas |>
+  autoplot(growth_direct) +
+  labs(title = "Canadian Gas Production: Month-over-Month Growth (direct)",
+       x = NULL, y = "Growth rate (%)") +
+  theme_minimal()
+
+can_gas <- can_gas |>
+  mutate(growth_gap = abs(growth_direct - growth_logdiff))
+
+can_gas |>
+  autoplot(growth_gap) +
+  labs(title = "Gap Between Direct and Log-Difference Growth",
+       x = NULL, y = "Absolute gap (percentage points)") +
+  theme_minimal()
+```
+
+**3.2a.** The log difference approximation is very good for most of the sample.  The gap is usually well under 1 percentage point.  It’s largest in the 60s-80s (peaks at 2-3 points), when monthly growth rates were large, and shrinks in the later years when growth rates are smaller.  That’s the usual pattern, since the approximation gets worse as growth rates get bigger. 
+
+### SA vs. NSA growth rates (3.3)
+
+```{r}
+retail_ts <- retail_ts |>
+  group_by_key() |>
+  mutate(growth_mom = 100 * difference(log(sales))) |>
+  ungroup()
+
+retail_ts |>
+  autoplot(growth_mom) +
+  labs(title = "Month-over-Month Growth: SA vs. NSA Retail Sales",
+       x = NULL, y = "Growth rate (%)", color = NULL) +
+  theme_minimal()
+```
+
+**3.3.** The NSA series is much noisier.  It’s month over month growth swings between roughly -20% and 20% while the SA series stays close to zero with very small movements.  The reason being that the NSA series still contains the repeating seasonal pattern so its month-to-month changes are dominated by the seasonal movement.  Seasonal adjustment removes that pattern so the SA growth rates only reflect the underlying changes in the economy. 
