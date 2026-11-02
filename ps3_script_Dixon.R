@@ -95,3 +95,25 @@ retail_ts |>
        x = NULL, y = "Millions of dollars", color = NULL) +
   theme_minimal()
 
+can_gas <- can_gas |>
+  mutate(log_volume = log(Volume))
+
+can_gas |>
+  autoplot(log_volume) +
+  labs(title = "Log of Canadian Natural Gas Production",
+       x = NULL, y = "log(Volume)") +
+  theme_minimal()
+
+retail_nsa <- retail_ts |>
+  filter(series_id == "RSAFSNA") |>
+  mutate(log_sales = log(sales))
+
+retail_nsa |>
+  autoplot(sales) +
+  labs(title = "NSA Retail Sales: Level", x = NULL, y = "Millions of dollars") +
+  theme_minimal()
+
+retail_nsa |>
+  autoplot(log_sales) +
+  labs(title = "NSA Retail Sales: Log", x = NULL, y = "log(Millions of dollars)") +
+  theme_minimal()
