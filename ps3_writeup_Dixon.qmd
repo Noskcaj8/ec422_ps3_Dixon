@@ -360,4 +360,77 @@ can_gas_fit |>
   knitr::kable(digits = 3)
 ```
 
-**4.4c.** The residuals do not look like white noise.  The time plot shows long, slow swings and the ACF is very high, and decays slowly.  The Ljung-Box test gives a statistic of about 7,774 with a p-value of basically 0, so at the 5% level we reject the null of white noise.  A straight-line trend plus fixed seasonal dummies leaves a lot of predicable structure like the nonlinear trend and persistence.  
+**4.4c.** The residuals do not look like white noise.  The time plot shows long, slow swings and the ACF is very high, and decays slowly.  The Ljung-Box test gives a statistic of about 7,774 with a p-value of basically 0, so at the 5% level we reject the null of white noise.  A straight-line trend plus fixed seasonal dummies leaves a lot of predicable structure like the nonlinear trend and persistence.
+
+## Forecast Evaluation
+
+### Expanding-window TS-CV (5.1)
+
+```{r}
+gas_cv_fc <- can_gas |>
+  select(Month, Volume) |>
+  stretch_tsibble(.init = 240, .step = 1) |>
+  model(snaive = SNAIVE(Volume),
+        tslm   = TSLM(log(Volume) ~ trend() + season())) |>
+  forecast(h = 1)
+
+cv_expanding_acc <- gas_cv_fc |>
+  accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
+
+cv_expanding_acc |>
+  select(.model, MAE, RMSE) |>
+  knitr::kable(digits = 3,
+               caption = "Expanding-window TS-CV accuracy (one-month-ahead)")
+```
+
+```{r}
+gas_cv_fc |>
+  as_tibble() |>
+  filter(Month <= yearmonth("2005 Feb")) |>
+  summarize(first_forecast = min(Month), last_forecast = max(Month)) |>
+  knitr::kable()
+```
+
+**5.1a.** The first forecast is Jan 1980 and last evaluated forecast is Feb 2005 which is 302 forecasts.  The seasonal random walk forecasts far more accurately than the trend + seasonal dummies model.  Its errors are roughly seven times smaller and both metrics agree.
+
+### Is the difference significant? (5.2)
+
+```{r}
+errs <- gas_cv_fc |>
+  as_tibble() |>
+  left_join(as_tibble(can_gas) |> select(Month, actual = Volume),
+            by = "Month") |>
+  mutate(e = actual - .mean) |>
+  select(Month, .model, e) |>
+  pivot_wider(names_from = .model, values_from = e) |>
+  na.omit()
+
+forecast::dm.test(errs$snaive, errs$tslm, h = 1, power = 1)
+```
+
+**5.2a.** The DM statistic is -31.28 with a p-value below 2.2e-16.  We reject the null that the two models are equally accurate at any usual significance level.  The negative sign means the first model (SNAIVE) has smaller average absolute errors so the SNAIVE forecasts are significantly better than the TSLM forecasts.  
+
+### Rolling window (5.3)
+
+```{r}
+gas_cv_fc_roll <- can_gas |>
+  select(Month, Volume) |>
+  slide_tsibble(.size = 240, .step = 1) |>
+  model(snaive = SNAIVE(Volume),
+        tslm   = TSLM(log(Volume) ~ trend() + season())) |>
+  forecast(h = 1)
+
+cv_rolling_acc <- gas_cv_fc_roll |>
+  accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
+
+cv_rolling_acc |>
+  select(.model, MAE, RMSE) |>
+  knitr::kable(digits = 3,
+               caption = "Rolling-window (240 months) TS-CV accuracy (one-month-ahead)")
+```
+
+**5.3a.** SNAIVE didn’t change at all because it only uses the same month last year, so a longer or shorter training window doesn’t matter.  TSLM improved a lot (MAE from 4.01 to 2.09), because it relies on a straight-line trend estimated from the whole training window.  As we saw in 4.4b, a single straight line fits this series poorly since growth was steep early on and slowed later.  The expanding window keeps the old steep-growth data in every fit, while the rolling window drops it and tracks recent behavior better.  TSLM is still worse than SNAIVE though. 
+
+## Reflection
+
+The residuals from the simple trend + seasonal dummies model still showed a lot of structure: long, slow swings and an ACF near 0.9 at the first lag, which means the model missed the changing, nonlinear trend and the persistence in the series. The Ljung-Box test confirmed this by rejecting white noise confidently. The forecast evaluation showed the cost of that missing structure: the seasonal random walk beat the trend + seasonal model by a wide margin in both the expanding and rolling windows, and the DM test says the gap is statistically significant. The rolling window helped the trend model because it dropped old data from a very different growth period, which suggests the trend is changing over time. I would expect a better model to let the level of the series adapt, for example by including the series' own past values or a trend that can change, while keeping the seasonal pattern. This model's residuals should look much closer to white noise, and its forecasts should be able to beat the seasonal random walk.
