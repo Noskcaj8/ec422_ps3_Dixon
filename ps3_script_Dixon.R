@@ -149,3 +149,28 @@ retail_ts |>
   labs(title = "Month-over-Month Growth: SA vs. NSA Retail Sales",
        x = NULL, y = "Growth rate (%)", color = NULL) +
   theme_minimal()
+
+retail_ts |>
+  filter(series_id == "RSAFSNA") |>
+  gg_season(sales) +
+  labs(title = "Seasonal Pattern in NSA Retail Sales",
+       y = "Millions of dollars") +
+  theme_minimal()
+
+retail_ts |>
+  filter(series_id == "RSAFS") |>
+  gg_season(sales) +
+  labs(title = "Seasonal Pattern in SA Retail Sales",
+       y = "Millions of dollars") +
+  theme_minimal()
+
+can_gas |>
+  gg_season(log_volume) +
+  labs(title = "Seasonal Pattern in Canadian Gas Production",
+       y = "log(Volume)") +
+  theme_minimal()
+
+can_gas |>
+  gg_subseries(log_volume) +
+  labs(title = "Subseries Plot: Canadian Gas Production",
+       y = "log(Volume)")
